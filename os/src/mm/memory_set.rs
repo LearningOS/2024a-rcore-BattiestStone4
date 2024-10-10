@@ -34,6 +34,7 @@ lazy_static! {
 pub struct MemorySet {
     page_table: PageTable,
     areas: Vec<MapArea>,
+    mmap_frames: BTreeMap<VirtPageNum, FrameTracker>
 }
 
 impl MemorySet {
@@ -42,6 +43,7 @@ impl MemorySet {
         Self {
             page_table: PageTable::new(),
             areas: Vec::new(),
+            mmap_frames: BTreeMap::new()
         }
     }
     /// Get the page table token
@@ -300,6 +302,75 @@ impl MemorySet {
             false
         }
     }
+
+    /// mmap
+    pub fn mmap(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum, port: usize) -> isize {
+         let mut flags = PTEFlags::empty();
+         let mut vpn = start_vpn;
+
+         if port & 0b0000_0001 != 0 {
+             flags |= PTEFlags::R;
+         }
+
+         if port & 0b0000_0010 != 0 {
+             flags |= PTEFlags::W;
+         }
+
+         if port & 0b0000_0100 != 0 {
+             flags |= PTEFlags::X;
+         }
+
+         flags |= PTEFlags::U;
+         flags |= PTEFlags::V;
+
+         while vpn != end_vpn {
+             if let Some(pte) = self.page_table.translate(vpn) {
+                 debug!("find vpn {:?}, pte flag = {:?}", vpn, pte.flags());
+                 if pte.is_valid() {
+                     debug!("Already mapped on vpn {:?}", vpn);
+                     return -1;
+                 }
+             }
+
+             if let Some(frame) = frame_alloc() {
+                 let ppn = frame.ppn;
+                 self.page_table.map(vpn, ppn, flags);
+                 self.mmap_frames.insert(vpn, frame);
+                 debug!("mmap_frames: {:?}, flag: {:?}", self.mmap_frames, flags);
+             }
+             else {
+                 return -1;
+             }
+
+             vpn.step();
+         }
+
+         0
+
+     }
+
+    /// munmap
+    pub fn munmap(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> isize {
+         let mut vpn = start_vpn;
+         while vpn != end_vpn {
+             if let Some(pte) = self.page_table.translate(vpn) {
+                 if !pte.is_valid() {
+                     debug!("Unmapping no vpn.");
+                     return -1;
+                 }
+             }
+             else {
+                 return -1;
+             }
+             self.page_table.unmap(vpn);
+             self.mmap_frames.remove(&vpn);
+             vpn.step();
+         }
+
+         0
+     }
+
+
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -400,7 +471,8 @@ impl MapArea {
             current_vpn.step();
         }
     }
-}
+
+    }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 /// map type for memory set: identical or framed
