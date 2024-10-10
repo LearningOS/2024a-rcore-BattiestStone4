@@ -9,6 +9,10 @@ use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use crate::timer::get_time_ms;
+use crate::syscall::TaskInfo;
+use crate::mm::VirtPageNum;
+use crate::config::BIG_STRIDE;
 use alloc::sync::Arc;
 use lazy_static::*;
 
@@ -61,6 +65,10 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            task_inner.stride += BIG_STRIDE / task_inner.priority as u32;
+            if task_inner.start_time == 0 {
+                task_inner.start_time = get_time_ms();
+            }
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -108,4 +116,38 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// Increase syscall times
+pub fn increase_syscall_times(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.syscall_times[syscall_id] += 1;
+    
+}
+
+/// Set task info
+pub fn set_task_info(ti: *mut TaskInfo) {
+    let task = current_task().unwrap();
+    let task_inner = task.inner_exclusive_access();
+    let curr_time = get_time_ms();
+    unsafe {
+        (*ti).time = curr_time - task_inner.start_time;
+        (*ti).syscall_times = task_inner.syscall_times;
+        (*ti).status = TaskStatus::Running;
+    }
+}
+
+/// To mmap
+pub fn mmap(start_vpn: VirtPageNum, end_vpn: VirtPageNum, port: usize) -> isize {
+    let task = current_task().unwrap();
+    let memo = task.inner_exclusive_access().memory_set.mmap(start_vpn, end_vpn, port);
+    memo
+}
+
+/// To munmap
+pub fn munmap(start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> isize {
+    let task = current_task().unwrap();
+    let memo = task.inner_exclusive_access().memory_set.munmap(start_vpn, end_vpn);
+    memo
 }
