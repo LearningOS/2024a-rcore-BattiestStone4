@@ -5,6 +5,7 @@ use crate::fs::{File, Stdin, Stdout};
 use crate::config::{TRAP_CONTEXT_BASE, MAX_SYSCALL_NUM};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
+use crate::task::current_task;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec;
@@ -280,6 +281,15 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+    
+    /// spawn
+    pub fn spawn(&self, elf_data: &[u8]) -> Arc<TaskControlBlock> {
+        let current_task=current_task().unwrap();
+        let new_task = Arc::new(TaskControlBlock::new(&elf_data));
+        current_task.inner_exclusive_access().children.push(new_task.clone());
+        new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&current_task));
+        new_task
     }
 }
 

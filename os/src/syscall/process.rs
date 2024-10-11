@@ -5,12 +5,11 @@ use alloc::sync::Arc;
 use crate::{
     config::MAX_SYSCALL_NUM,
     fs::{open_file, OpenFlags},
-    loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str, translate_ptr, VirtAddr, VirtPageNum},
+    mm::{translated_refmut, translated_str, VirtAddr, VirtPageNum},
     timer::get_time_ms,
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, set_task_info, TaskStatus, TaskControlBlock, mmap, munmap
+        suspend_current_and_run_next, set_task_info, TaskStatus, mmap, munmap
     },
 };
 
@@ -125,13 +124,11 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
         current_task().unwrap().pid.0
     );
     let ms = get_time_ms();
-    let ktime = translate_ptr(current_user_token(), ts);
-    unsafe {
-        *ktime = TimeVal {
+    let ktime = translated_refmut(current_user_token(), ts);
+    *ktime = TimeVal {
             sec: ms / 1_000,
             usec: ms * 1_000,
-        };
-    }
+    };
     0
 }
 
@@ -143,7 +140,7 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
         "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    let kti = translate_ptr(current_user_token(), ti);
+    let kti = translated_refmut(current_user_token(), ti);
     set_task_info(kti);
     0
 }
@@ -210,28 +207,43 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn",
-        current_task().unwrap().pid.0
-    );
-    let path = translated_str(current_user_token(), path);
-    if let Some(data) = get_app_data_by_name(path.as_str()) {
-        let current_task = current_task().unwrap();
-        let mut parent_inner = current_task.inner_exclusive_access();
+         "kernel:pid[{}] sys_spawn",
+         current_task().unwrap().pid.0
+     );
 
-        let new_tcb = Arc::new(TaskControlBlock::new(data));
-        let mut inner = new_tcb.inner_exclusive_access();
-
-        inner.parent = Some(Arc::downgrade(&current_task));
-        parent_inner.children.push(new_tcb.clone());
-        drop(inner);
-
-        let pid = new_tcb.pid.0 as isize;
-
-        add_task(new_tcb);
-
-        return pid;
+    let path =translated_str(current_user_token(), path);
+    if let Some(app_inode)= open_file(path.as_str(),OpenFlags::RDONLY){
+        let elf_data = app_inode.read_all();
+        let task = current_task().unwrap().spawn(&elf_data);
+        add_task(task.clone());
+        task.pid.0 as isize
+    } else {
+        -1
     }
-    -1
+    //I don't understand why this failed.
+    //let token = current_user_token();
+    //let path = translated_str(token, path);
+    //if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
+    //    let current_task = current_task().unwrap();
+    //    let mut parent_inner = current_task.inner_exclusive_access();
+
+        //debug!("path: {}", path);
+
+    //    let data = app_inode.read_all();
+    //    let new_tcb = Arc::new(TaskControlBlock::new(data.as_slice()));
+    //    let mut inner = new_tcb.inner_exclusive_access();
+
+    //    inner.parent = Some(Arc::downgrade(&current_task));
+    //    parent_inner.children.push(new_tcb.clone());
+    //    drop(inner);
+
+    //    let pid = new_tcb.pid.0 as isize;
+
+    //    add_task(new_tcb);
+
+    //    return pid;
+    //}
+
 }
 
 // YOUR JOB: Set task priority.
@@ -244,7 +256,7 @@ pub fn sys_set_priority(prio: isize) -> isize {
         let current_task = current_task().unwrap();
         let mut inner = current_task.inner_exclusive_access();
         inner.priority = prio as u8;
-        return prio
+        return prio;
     }
     -1
 }
