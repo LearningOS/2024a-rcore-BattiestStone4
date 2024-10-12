@@ -49,6 +49,18 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock detect
+    pub dead_lock_detect: bool,
+    /// mutex need
+    pub mutex_need: Vec<Vec<i32>>,
+    /// mutex allocation
+    pub mutex_alloc: Vec<Vec<i32>>,
+    /// semaphore need
+    pub semaphore_need: Vec<Vec<i32>>,
+    /// semaphore allocation
+    pub semaphore_alloc: Vec<Vec<i32>>,
+    /// finished
+    pub finished: Vec<bool>
 }
 
 impl ProcessControlBlockInner {
@@ -81,6 +93,10 @@ impl ProcessControlBlockInner {
     /// get a task with tid in this process
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
+    }
+    /// dead lock detected
+    pub fn is_dead_lock_detect_enabled(&self) -> bool {
+        self.dead_lock_detect
     }
 }
 
@@ -119,6 +135,12 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    dead_lock_detect: false,
+                    mutex_need: Vec::new(),
+                    mutex_alloc: Vec::new(),
+                    semaphore_need: Vec::new(),
+                    semaphore_alloc: Vec::new(),
+                    finished: Vec::new()
                 })
             },
         });
@@ -245,6 +267,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    dead_lock_detect: false,
+                    mutex_need: Vec::new(),
+                    mutex_alloc: Vec::new(),
+                    semaphore_need: Vec::new(),
+                    semaphore_alloc: Vec::new(),
+                    finished: Vec::new()
+
                 })
             },
         });
