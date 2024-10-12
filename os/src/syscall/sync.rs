@@ -238,6 +238,10 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
             else {
                 let mut ok = true;
                 for (_sem_id, need) in process_inner.semaphore_need[_tid].iter().enumerate() {
+                    if _sem_id == 0 {
+                        continue;
+                    }
+
                     let sem_count = process_inner.semaphore_list[_sem_id]
                         .as_ref()
                         .unwrap()
